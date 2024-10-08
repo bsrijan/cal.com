@@ -150,6 +150,27 @@ type BookingDataSchemaGetter =
   | typeof getBookingDataSchema
   | typeof import("@calcom/features/bookings/lib/getBookingDataSchemaForApi").default;
 
+function ensureContactOwnerIsThereInBooking({
+  contactOwnerEmail,
+  availableUsers,
+  luckyUsers,
+  fixedUserPool,
+}: {
+  contactOwnerEmail: string;
+  availableUsers: IsFixedAwareUser[];
+  luckyUsers: Awaited<ReturnType<typeof loadAndValidateUsers>>;
+  fixedUserPool: IsFixedAwareUser[];
+}) {
+  // If contact owner is not a fixed host, assign the lucky user as the team member
+  if (!fixedUserPool.some((user) => user.email === contactOwnerEmail)) {
+    const teamMember = availableUsers.find((user) => user.email === contactOwnerEmail);
+    if (teamMember) {
+      luckyUsers.push(teamMember);
+    }
+  }
+  return luckyUsers;
+}
+
 async function handler(
   req: NextApiRequest & {
     userId?: number | undefined;
@@ -384,7 +405,7 @@ async function handler(
         },
         loggerWithEventDetails
       );
-      const luckyUsers: typeof users = [];
+      let luckyUsers: typeof users = [];
       const luckyUserPool: IsFixedAwareUser[] = [];
       const fixedUserPool: IsFixedAwareUser[] = [];
       availableUsers.forEach((user) => {
@@ -401,14 +422,14 @@ async function handler(
         })
       );
 
-      if (reqBody.teamMemberEmail) {
-        // If requested user is not a fixed host, assign the lucky user as the team member
-        if (!fixedUserPool.some((user) => user.email === reqBody.teamMemberEmail)) {
-          const teamMember = availableUsers.find((user) => user.email === reqBody.teamMemberEmail);
-          if (teamMember) {
-            luckyUsers.push(teamMember);
-          }
-        }
+      const contactOwnerEmail = reqBody.teamMemberEmail;
+      if (contactOwnerEmail) {
+        luckyUsers = ensureContactOwnerIsThereInBooking({
+          contactOwnerEmail,
+          availableUsers,
+          luckyUsers,
+          fixedUserPool,
+        });
       }
 
       // loop through all non-fixed hosts and get the lucky users
